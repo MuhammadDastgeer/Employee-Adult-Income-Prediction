@@ -1,21 +1,23 @@
 """
-Adult Census Income Prediction — Streamlit Production App
-Loads the models & preprocessing artifacts saved by the training notebook
-and serves live predictions.
+Adult Census Income Prediction — Streamlit Production App (ML-only)
+Loads the saved Machine Learning model (XGBoost) and preprocessing artifacts.
+No TensorFlow / Deep Learning dependency here — kept lightweight and
+error-free for easy deployment on Streamlit Community Cloud.
+
+(The Deep Learning model is trained, evaluated, and saved separately in the
+accompanying Jupyter notebook — see models/dl_model.keras.)
 """
 
 import streamlit as st
 import pandas as pd
-import numpy as np
 import joblib
 import json
-from tensorflow import keras
 
 # ----------------------------------------------------------------------------
 # Page config
 # ----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="Income Prediction | ML & DL",
+    page_title="Income Prediction | ML",
     page_icon="💰",
     layout="wide"
 )
@@ -26,16 +28,15 @@ st.set_page_config(
 @st.cache_resource
 def load_artifacts():
     ml_model = joblib.load("models/best_ml_model.pkl")
-    dl_model = keras.models.load_model("models/dl_model.keras")
     scaler = joblib.load("models/scaler.pkl")
     encoders = joblib.load("models/label_encoders.pkl")
     target_le = joblib.load("models/target_encoder.pkl")
     feature_names = joblib.load("models/feature_names.pkl")
     with open("models/results_summary.json") as f:
         results = json.load(f)
-    return ml_model, dl_model, scaler, encoders, target_le, feature_names, results
+    return ml_model, scaler, encoders, target_le, feature_names, results
 
-ml_model, dl_model, scaler, encoders, target_le, feature_names, results = load_artifacts()
+ml_model, scaler, encoders, target_le, feature_names, results = load_artifacts()
 
 ml_model_name = type(ml_model).__name__
 ml_display_names = {
@@ -50,13 +51,22 @@ ml_display_name = ml_display_names.get(ml_model_name, ml_model_name)
 # ----------------------------------------------------------------------------
 with st.sidebar:
     st.title("📊 Model Info")
-    st.markdown(f"**Best ML Model:** {ml_display_name}")
-    st.markdown("**Deep Learning Model:** Neural Network (Keras)")
+    st.markdown(f"**Model in use:** {ml_display_name}")
+    st.caption("Trained on real US Census data")
     st.divider()
 
     st.subheader("Test Set Performance")
     results_df = pd.DataFrame(results).T.round(3)
-    st.dataframe(results_df, use_container_width=True)
+    if ml_display_name in results_df.index:
+        st.dataframe(results_df.loc[[ml_display_name]], use_container_width=True)
+    else:
+        st.dataframe(results_df, use_container_width=True)
+
+    with st.expander("See all models compared (from notebook)"):
+        st.dataframe(results_df, use_container_width=True)
+        st.caption("Note: this app serves the best ML model only. "
+                   "A Deep Learning model was also trained and compared "
+                   "in the accompanying Jupyter notebook.")
 
     st.divider()
     st.caption("Dataset: UCI Adult / Census Income (45,174 real records)")
@@ -66,7 +76,7 @@ with st.sidebar:
 # Main header
 # ----------------------------------------------------------------------------
 st.title("💰 Adult Income Prediction")
-st.markdown("### Predict whether a person's annual income exceeds **$50,000** using ML & Deep Learning")
+st.markdown(f"### Predict whether a person's annual income exceeds **$50,000** using {ml_display_name}")
 st.markdown("Fill in the details below and get an instant, live production prediction.")
 st.divider()
 
@@ -117,13 +127,6 @@ with col3:
     capital_gain = st.number_input("Capital Gain ($)", min_value=0, max_value=100000, value=0, step=100)
     capital_loss = st.number_input("Capital Loss ($)", min_value=0, max_value=5000, value=0, step=50)
 
-    st.markdown("")
-    model_choice = st.radio(
-        "🤖 Choose Prediction Model",
-        [f"Machine Learning ({ml_display_name})", "Deep Learning (Neural Network)"],
-        horizontal=False
-    )
-
 st.divider()
 
 # ----------------------------------------------------------------------------
@@ -145,15 +148,7 @@ if st.button("🔮 Predict Income Class", type="primary", use_container_width=Tr
     row = row[feature_names]
     row_scaled = scaler.transform(row)
 
-    use_dl = model_choice.startswith("Deep Learning")
-
-    if use_dl:
-        prob = float(dl_model.predict(row_scaled, verbose=0)[0][0])
-        used_model_name = "Deep Neural Network"
-    else:
-        prob = ml_model.predict_proba(row_scaled)[0][1]
-        used_model_name = ml_display_name
-
+    prob = ml_model.predict_proba(row_scaled)[0][1]
     pred_label = target_le.inverse_transform([int(prob >= 0.5)])[0]
 
     st.divider()
@@ -164,7 +159,7 @@ if st.button("🔮 Predict Income Class", type="primary", use_container_width=Tr
             st.success(f"### ✅ Predicted Income: **{pred_label}**")
         else:
             st.info(f"### 📊 Predicted Income: **{pred_label}**")
-        st.metric("Model Used", used_model_name)
+        st.metric("Model Used", ml_display_name)
         st.metric("Probability of >50K", f"{prob*100:.2f}%")
 
     with res_col2:
@@ -176,4 +171,5 @@ if st.button("🔮 Predict Income Class", type="primary", use_container_width=Tr
             st.json(sample)
 
 st.divider()
-st.caption("Built as an end-to-end ML/DL production project — models trained in the accompanying Jupyter notebook.")
+st.caption("Built as an end-to-end ML production project — full ML + Deep Learning "
+           "training & comparison available in the accompanying Jupyter notebook.")
